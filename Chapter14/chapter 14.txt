@@ -1,0 +1,517 @@
+# display is a reserved function in Databricks that allows us to view and manipulate Dataframes inline
+# dbutils is a library full of ready-to-use datasets for us to use
+# Let's start by displaying all of the directories in the main data folder 
+# "databricks-datasets"
+
+display(dbutils.fs.ls("/databricks-datasets"))
+
+---------------------------------------------------------------------------------------------------------------------
+
+Command took <<elapsed_time>> -- by <<username/email>> at <<date>>, <<time>> on <<cluster_name>>
+
+---------------------------------------------------------------------------------------------------------------------
+
+# Let's check out the general README of the date folder by opening the markdown folder and printing out the result of "readlines"
+# which is a way to print out the contents of a file
+with open("/dbfs/databricks-datasets/README.md") as f:
+ x = ''.join(f.readlines())
+
+print(x)
+
+Databricks Hosted Datasets 
+========================== 
+The data contained within this directory is hosted for users to build data pipelines using Apache Spark and Databricks. 
+
+License 
+-------
+....
+
+-----------------------------------------------------------------------------------------------------------------------
+# Let's list the contents of the directory corresponding to the data that we want to import
+display(dbutils.fs.ls("dbfs:/databricks-datasets/bikeSharing/"))
+
+------------------------------------------------------------------------------------------------------------------------
+
+# the data is given to use in both an hourly and a daily format.
+display(dbutils.fs.ls("dbfs:/databricks-datasets/bikeSharing/data-001/"))
+
+------------------------------------------------------------------------------------------------------------------------
+
+# Note that we had to change the format from dbfs:/ to /dbfs/
+with open("/dbfs/databricks-datasets/bikeSharing/README.md") as f:
+x = ''.join(f.readlines())
+print(x)
+## Dataset
+Bike-sharing rental process is highly correlated to the environmental and
+seasonal settings. For instance, weather conditions, precipitation, day of
+week, season, hour of the day, etc. can affect the rental behaviors. The
+core data set is related to the two-year historical log corresponding to
+years 2011 and 2012 from Capital Bikeshare system, Washington D.C., USA
+which is publicly available in http://capitalbikeshare.com/system-data. We
+aggregated the data on two hourly and daily basis and then extracted and
+added the corresponding weather and seasonal information. Weather
+information are extracted from http://www.freemeteo.com.
+...
+
+-----------------------------------------------------------------------------------------------------------------------
+
+# Load data into a Pandas dataframe (note that pandas, sklearn, etc come
+with the environment. That's pretty neat!)
+import pandas
+bike_data = pandas.read_csv("/dbfs/databricksdatasets/
+bikeSharing/data-001/hour.csv").iloc[:,1:] # remove line number
+# view the dataframe
+#look at the first row
+bike_data.loc[0]
+
+----------------------------------------------------------------------------------------------------------------------
+# 17,379 observations
+bike_data.shape
+
+----------------------------------------------------------------------------------------------------------------------
+# no missing data, great!
+bike_data.isnull().sum()
+
+-------------------------------------------------------------------------------------------------------------------
+
+not everything will carry over, but that is ok
+%matplotlib inline
+bike_data.hist("cnt")
+# matplotlib inline is not supported in Databricks.
+# You can display matplotlib figures using display(). For an example, see #
+https://docs.databricks.com/user-guide/visualizations/matplotlib-and-ggplot
+.html
+
+---------------------------------------------------------------------------------------------------------------------
+
+# converting to a Spark DataFrame allows us to make multiple types of plots
+using either a sample of data or the entire data population as the source
+sparkDataframe = spark.createDataFrame(bike_data)
+# display is a simple way to view your data either via a table or through
+graphs
+display(sparkDataframe)
+
+----------------------------------------------------------------------------------------------------------------------
+
+# Seperate into X, and y (features and label)
+# we will turn our regression problem into a classification problem by
+bucketing the column "cnt" as being either over 100 / 100 or under.
+features, labels = bike_data[["season", "yr", "mnth", "hr", "holiday",
+"weekday", "workingday", "weathersit", "atemp", "hum", "windspeed"]],
+bike_data["cnt"] > 100
+# See the distribution of our labels
+labels.value_counts()
+
+----------------------------------------------------------------------------------------------------------------------
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+# Create a function that will
+# 0. Take in a parameter for our Random Forest's n_estimators param
+# 1. Instantiate a Random Forest algorithm
+# 2. Split our data into a training and testing split
+# 3. Fit on our training data
+# 4. evaluate on our testing data
+# 5. return a tuple with the n_estimators param and corresponding accuracy
+def runRandomForest(c):
+rf = RandomForestClassifier(n_estimators=c)
+# Split into train and test using
+sklearn.cross_validation.train_test_split
+X_train, X_test, y_train, y_test = train_test_split(features, labels,
+test_size=0.2, random_state=1)
+# Build the model
+rf.fit(X_train, y_train)
+# Calculate predictions and accuracy
+predictions = rf.predict(X_test)
+accuracy = accuracy_score(predictions, y_test)
+# return param and accuracy score
+return (c, accuracy)
+
+--------------------------------------------------------------------------------------------------------------------
+
+runRandomForest(1)
+
+-------------------------------------------------------------------------------------------------------------------
+
+for i in [1, 10, 100, 1000, 10000]:
+  print(runRandomForest(i))
+
+-------------------------------------------------------------------------------------------------------------------
+# every notebook has a variable called "sc" that represents the Spark
+context in our cluster
+sc
+
+-------------------------------------------------------------------------------------------------------------------
+
+# 1. set up 5 tasks in our Spark Cluster by parallelizing a dataset (list)
+of five elements (n_estimator options)
+k = sc.parallelize([1, 10, 100, 1000, 10000])
+# 2. map our function to our 5 tasks
+# The code will not be sent to our cluster until we run the next command
+results = k.map(runRandomForest)
+Command took 0.13 seconds
+
+----------------------------------------------------------------------------------------------------------------
+
+# 3. the collect method actually sends the five tasks to our cluster for
+execution
+# Faster (1.5x) because we aren't doing each task one after the other. We
+are doing them in parallel
+# This becomes much more noticeable when doing more params (we will get to
+this in a later case study)
+results.collect()
+Command took 2.73 minutes
+
+------------------------------------------------------------------------------------------------------------------
+
+# Broadcast dataset
+# If we use a variable in a function, Spark will automatically send the
+dataset to the workers. This is usually fine.
+# We can send it to workers more efficiently by broadcasting it. By
+broadasting data, a copy is sent to our workers which are used when running
+tasks.
+# For more info on broadcast variables, see the Spark programming guide.
+You can create a Broadcast variable using sc.broadcast().
+# To access the value of a broadcast variable, you need to use .value
+# broadcast the variables to our workers
+featuresBroadcast = sc.broadcast(features)
+labelsBroadcast = sc.broadcast(labels)
+# reboot of the previous function
+def runRandomForestBroadcast(c):
+rf = RandomForestClassifier(n_estimators=c)
+# Split into train and test using
+sklearn.cross_validation.train_test_split
+# ** This part of the function is the only difference from the previous
+version **
+X_train, X_test, y_train, y_test =
+train_test_split(featuresBroadcast.value, labelsBroadcast.value,
+test_size=0.2, random_state=1)
+# Build the model
+rf.fit(X_train, y_train)
+# Calculate predictions and accuracy
+predictions = rf.predict(X_test)
+accuracy = accuracy_score(predictions, y_test)
+return (c, accuracy)
+
+------------------------------------------------------------------------------------------------------------------
+
+# set up 5 tasks in our Spark Cluster
+k = sc.parallelize([1, 10, 100, 1000, 10000])
+# map our function to our five tasks
+results = k.map(runRandomForestBroadcast)
+# the real work begins here.
+results.collect()
+
+------------------------------------------------------------------------------------------------------------------
+
+# Since we are done with our broadcast variables, we can clean them up.
+# (This will happen automatically, but we can make it happen earlier by
+explicitly unpersisting the broadcast variables.
+featuresBroadcast.unpersist()
+labelsBroadcast.unpersist()
+
+-----------------------------------------------------------------------------------------------------------------
+# File location and type
+# This dataset also exists in the DBFS of Databricks. This is just to show
+how to import a CSV that has been previously uploaded so that
+# you can upload your own!
+file_location = "/FileStore/tables/creditcard.csv"
+file_type = "csv"
+# CSV options
+# will automatically cast columns as appropiate types (float, string, etc)
+infer_schema = "true"
+first_row_is_header = "true"
+delimiter = ","
+# read a csv file and convert to a Spark dataframe
+df = spark.read.format(file_type) \
+.option("inferSchema", infer_schema) \
+.option("header", first_row_is_header) \
+.option("sep", delimiter) \
+.load(file_location)
+# show us the Spark Dataframe
+display(df)
+
+-----------------------------------------------------------------------------------------------------------------
+
+# import the pipeline module from pyspark
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import VectorAssembler, StandardScaler,
+StringIndexer
+# will hold the steps of our pipeline
+stages = []
+
+-----------------------------------------------------------------------------------------------------------------
+
+# Transform all features into a vector using VectorAssembler
+# create list of ["V1", "V2", "V3", ...]
+numericCols = ["V{}".format(i) for i in range(1, 29)]
+# Add "Amount" to the list of features
+assemblerInputs = numericCols + ["Amount"]
+# VectorAssembler acts like scikit-learn's "FeatureUnion" to put together
+the feature columns and adding the label "features"
+assembler = VectorAssembler(inputCols=assemblerInputs,
+outputCol="features")
+# add the VectorAssembler to the stages of our MLLib Pipeline
+stages.append(assembler)
+
+----------------------------------------------------------------------------------------------------------------
+# MLLib's StandardScaler acts like scikit-learn's StandardScaler
+scaler = StandardScaler(inputCol="features", outputCol="scaledFeatures",
+withStd=True, withMean=True)
+# add StandardScaler to our pipeline
+stages.append(scaler)
+
+---------------------------------------------------------------------------------------------------------------
+# Convert label into label indices using the StringIndexer (like scikitlearn's
+LabelEncoder)
+label_stringIdx = StringIndexer(inputCol="Class", outputCol="label")
+# add the StringIndexer to our pipeline
+stages.append(label_stringIdx)
+
+--------------------------------------------------------------------------------------------------------------
+# create our pipeline with three stages
+pipeline = Pipeline(stages=stages)
+
+--------------------------------------------------------------------------------------------------------------
+# We need to split our data into training and test sets. This is like
+scikit-learn's train_test_split function
+# We will also set a random number seed for reproducibility
+(trainingData, testData) = df.randomSplit([0.7, 0.3], seed=1)
+print(trainingData.count())
+print(testData.count())
+
+--------------------------------------------------------------------------------------------------------------
+
+#fit and transform to our training data
+pipelineModel = pipeline.fit(trainingData)
+trainingDataTransformed = pipelineModel.transform(trainingData)
+
+-------------------------------------------------------------------------------------------------------------
+
+# note the new columns "features", "scaledFeatures", and "label" at the end
+trainingDataTransformed
+DataFrame[Time: decimal(10,0), V1: double, V2: double, V3: double, V4:
+double, V5: double, V6: double, V7: double, V8: double, V9: double, V10:
+double, V11: double, V12: double, V13: double, V14: double, V15: double,
+V16: double, V17: double, V18: double, V19: double, V20: double, V21:
+double, V22: double, V23: double, V24: double, V25: double, V26: double,
+V27: double, V28: double, Amount: double, Class: int, features: vector,
+scaledFeatures: vector, label: double]
+
+-------------------------------------------------------------------------------------------------------------
+# Import the logistic regression module from pyspark
+from pyspark.ml.classification import LogisticRegression
+# Create initial LogisticRegression model
+lr = LogisticRegression(labelCol="label", featuresCol="scaledFeatures")
+# Train model with Training Data
+lrModel = lr.fit(trainingDataTransformed)
+
+---------------------------------------------------------------------------------------------------------------
+
+# transform (not fit) to the testing data
+testDataTransformed = pipelineModel.transform(testData)
+# run our logistic regression over the transformed testing set
+predictions = lrModel.transform(testDataTransformed)
+
+-------------------------------------------------------------------------------------------------------------
+
+predictions
+DataFrame[Time: decimal(10,0), V1: double, V2: double, V3: double, V4:
+double, V5: double, V6: double, V7: double, V8: double, V9: double, V10:
+double, V11: double, V12: double, V13: double, V14: double, V15: double,
+V16: double, V17: double, V18: double, V19: double, V20: double, V21:
+double, V22: double, V23: double, V24: double, V25: double, V26: double,
+V27: double, V28: double, Amount: double, Class: int, features: vector,
+scaledFeatures: vector, label: double, rawPrediction: vector, probability:
+vector, prediction: double]
+
+---------------------------------------------------------------------------------------------------------------
+
+selected = predictions.select("label", "prediction", "probability")
+display(selected)
+
+------------------------------------------------------------------------------------------------------------
+# like scikit-learn's metric module
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+# Evaluate model using either area under Precision Recall curev or the area
+under the ROC
+evaluator = BinaryClassificationEvaluator(rawPredictionCol="rawPrediction",
+metricName="areaUnderROC")
+evaluator.evaluate(predictions)
+0.984986959421
+
+--------------------------------------------------------------------------------------------------------------
+
+# Get some deeper metrics out of our predictions
+from pyspark.mllib.evaluation import MulticlassMetrics
+# must turn DF into RDD (Resilient Distributed Dataset)
+predictionAndLabels = predictions.select("label",
+"prediction").rdd.map(tuple)
+# instantiate a MulticlassMetrics object
+metrics = MulticlassMetrics(predictionAndLabels)
+# Overall statistics
+accuracy = metrics.accuracy
+precision = metrics.precision()
+recall = metrics.recall()
+f1Score = metrics.fMeasure()
+print("Summary Stats")
+print("Accuracy = %s" % accuracy)
+print("Precision = %s" % precision)
+print("Recall = %s" % recall)
+print("F1 Score = %s" % f1Score)
+
+-----------------------------------------------------------------------------------------------------------
+
+tp = predictions[(predictions.label == 1) & (predictions.prediction ==
+1)].count()
+tn = predictions[(predictions.label == 0) & (predictions.prediction ==
+0)].count()
+fp = predictions[(predictions.label == 0) & (predictions.prediction ==
+1)].count()
+fn = predictions[(predictions.label == 1) & (predictions.prediction ==
+0)].count()
+print "True Positives:", tp
+print "True Negatives:", tn
+print "False Positives:", fp
+print "False Negatives:", fn
+
+--------------------------------------------------------------------------------------------------------------
+
+# explain the parameters that are included in MLLib's Logistic Regression
+print(lr.explainParams())
+aggregationDepth: suggested depth for treeAggregate (>= 2). (default: 2)
+elasticNetParam: the ElasticNet mixing parameter, in range [0, 1]. For alpha = 0, the penalty is an L2 penalty. For alpha = 1, it is an L1
+penalty. (default: 0.0)
+family: The name of family which is a description of the label distribution
+to be used in the model. Supported options: auto, binomial, multinomial
+(default: auto)
+featuresCol: features column name. (default: features, current:
+scaledFeatures)
+fitIntercept: whether to fit an intercept term. (default: True) labelCol:
+label column name. (default: label, current: label)
+....
+
+------------------------------------------------------------------------------------------------------------
+
+# pyspark's version of GridSearchCV
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+# Create ParamGrid for Cross Validation
+paramGrid = (ParamGridBuilder()
+.addGrid(lr.regParam, [0.0, 0.01, 0.5, 2.0])
+.addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])
+.addGrid(lr.maxIter, [5, 10])
+.build())
+# Create 5-fold CrossValidator that can also test multiple parameters (like
+scikit-learn's GridSearchCV)
+cv = CrossValidator(estimator=lr, estimatorParamMaps=paramGrid,
+evaluator=evaluator, numFolds=5)
+
+-------------------------------------------------------------------------------------------------------------
+
+# Run cross validations on our cluster
+cvModel = cv.fit(trainingDataTransformed)
+# this will likely take a fair amount of time because of the amount of
+models that we're creating and testing
+
+-------------------------------------------------------------------------------------------------------------
+
+# extract the weights from our model
+weights = cvModel.bestModel.coefficients
+# convert from numpy type to float
+weights = [[float(w)] for w in weights]
+weightsDF = sqlContext.createDataFrame(weights, ["Feature Weight"])
+display(weightsDF)
+
+-------------------------------------------------------------------------------------------------------------
+
+# Use test set to get the best params
+predictions = cvModel.transform(testDataTransformed)
+# must turn DF into RDD (Resilient Distributed Dataset)
+predictionAndLabels = predictions.select("label",
+"prediction").rdd.map(tuple)
+metrics = MulticlassMetrics(predictionAndLabels)
+# Overall statistics
+accuracy = metrics.accuracy
+precision = metrics.precision()
+recall = metrics.recall()
+f1Score = metrics.fMeasure()
+print("Summary Stats")
+print("Accuracy = %s" % accuracy)
+print("Precision = %s" % precision)
+print("Recall = %s" % recall)
+print("F1 Score = %s" % f1Score)
+Summary Stats
+Accuracy = 0.998839893598
+Precision = 0.998839893598
+Recall = 0.998839893598
+F1 Score = 0.998839893598
+tp = predictions[(predictions.label == 1) & (predictions.prediction ==
+1)].count()
+tn = predictions[(predictions.label == 0) & (predictions.prediction ==
+0)].count()
+fp = predictions[(predictions.label == 0) & (predictions.prediction ==
+1)].count()
+fn = predictions[(predictions.label == 1) & (predictions.prediction ==
+0)].count()
+print "True Positives:", tp
+print "True Negatives:", tn
+print "False Positives:", fp
+print "False Negatives:", fn
+# False positive went from 18 to 16 (win) but False Negative jumped to 83
+(opposite of win)
+True Positives: 60
+True Negatives: 85178
+False Positives: 16
+False Negatives: 83
+
+-------------------------------------------------------------------------------------------------------
+
+from sklearn import datasets
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV as original_grid_search
+digits = datasets.load_digits()
+X, y = digits.data, digits.target
+
+------------------------------------------------------------------------------------------------------
+
+param_grid = {"max_depth": [3, None],
+"max_features": [1, 3, 10],
+"min_samples_leaf": [1, 3, 10],
+"bootstrap": [True, False],
+"criterion": ["gini", "entropy"],
+"n_estimators": [10, 100, 1000]}
+gs = original_grid_search(RandomForestClassifier(), param_grid=param_grid)
+gs.fit(X, y)
+
+gs.best_params_, gs.bestscore
+
+
+({'bootstrap': False,
+'criterion': 'gini',
+'max_depth': None,
+'max_features': 3,
+'min_samples_leaf': 1,
+'n_estimators': 1000},
+0.95436839176405119)
+Command took 24.69 minutes
+
+--------------------------------------------------------------------------------------------------------
+
+# the new gridsearch module
+from spark_sklearn import GridSearchCV as spark_grid_search
+# the only difference is passing in the SparkContext objecr as the first
+parameter of the grid search
+gs = spark_grid_search(sc, RandomForestClassifier(), param_grid=param_grid)
+gs.fit(X, y)
+gs.best_params_, gs.bestscore
+({'bootstrap': False,
+'criterion': 'gini',
+'max_depth': None,
+'max_features': 3,
+'min_samples_leaf': 1,
+'n_estimators': 100},
+0.95436839176405119)
+Command took 5.29 minute
+
+--------------------------------------------------------------------------------------------------------
