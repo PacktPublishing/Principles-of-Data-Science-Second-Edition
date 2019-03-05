@@ -1,8 +1,7 @@
 # Principles of Data Science, Second Edition
 
-<<img src="https://www.safaribooksonline.com/library/cover/9781789804546/360h/" alt="Principles of Data Science, Second Edition" height="256px" align="right"></a>
+<img src="https://www.safaribooksonline.com/library/cover/9781789804546/360h/" alt="Principles of Data Science, Second Edition" height="256px" align="right"></a>
 
-This is the code repository for [Book Name](Packt UTM URL of the Book), published by Packt.
 
 **A beginner's guide to statistical techniques and theory to build effective data-driven applications**
 
