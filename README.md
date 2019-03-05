@@ -1,6 +1,6 @@
 # Principles of Data Science, Second Edition
 
-<a href="Packt UTM URL of the Book"><img src="Cover Image URL of the Book" alt="Book Name" height="256px" align="right"></a>
+<<img src="https://www.safaribooksonline.com/library/cover/9781789804546/360h/" alt="Principles of Data Science, Second Edition" height="256px" align="right"></a>
 
 This is the code repository for [Book Name](Packt UTM URL of the Book), published by Packt.
 
